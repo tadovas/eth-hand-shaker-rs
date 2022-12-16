@@ -1,0 +1,15 @@
+[package]
+name = "eth-hand-shaker-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.64"
+clap = { version = "4.0.29", features = ["derive"]}
+displaydoc = "0.2.3"
+hex = "0.4.3"
+k256 = { version = "0.11.6", features = ["ecdsa" , "hex-literal", "serde", "default", "keccak256", "ecdh"]}
+thiserror = "1.0.34"
+url = "2.3.1"
