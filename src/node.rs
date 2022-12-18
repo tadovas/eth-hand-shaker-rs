@@ -1,6 +1,6 @@
 use displaydoc::Display;
 use hex::FromHexError;
-use k256::PublicKey;
+use secp256k1::PublicKey;
 use std::str::FromStr;
 use thiserror::Error;
 use url::Url;
@@ -14,16 +14,16 @@ pub enum Error {
     /// port missing
     PortMissing,
     /// username as public key: {0}
-    PublicKeyError(#[source] FromHexError),
+    PublicKeyError(#[source] secp256k1::Error),
     /// invalid url: {0}
     InvalidUrl(#[source] url::ParseError),
 }
 
 #[derive(Debug, Clone)]
 pub struct Address {
-    host: String,
-    port: u16,
-    public_key: Vec<u8>,
+    pub host: String,
+    pub port: u16,
+    pub public_key: PublicKey,
 }
 
 impl TryFrom<Url> for Address {
@@ -33,11 +33,12 @@ impl TryFrom<Url> for Address {
         if value.scheme() != "enode" {
             return Err(Error::InvalidSchema(value.scheme().to_string()));
         }
-
+        // public key parser expects 04 char for uncompressed key indication
+        let public_key_str = &format!("04{}", value.username());
         Ok(Self {
             host: value.host().ok_or(Error::HostMissing)?.to_string(),
             port: value.port().ok_or(Error::PortMissing)?,
-            public_key: hex::decode(value.username()).map_err(Error::PublicKeyError)?,
+            public_key: PublicKey::from_str(public_key_str).map_err(Error::PublicKeyError)?,
         })
     }
 }
