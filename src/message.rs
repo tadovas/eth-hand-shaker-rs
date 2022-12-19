@@ -28,16 +28,12 @@ impl Default for AuthMsgV4 {
     }
 }
 
-const PADDING: [u8; 150] = [0xFE; 150];
-
 impl Encodable for AuthMsgV4 {
     fn rlp_append(&self, s: &mut RlpStream) {
         s.begin_list(4)
             .append(&self.signature.as_slice())
             .append(&self.pub_key.as_slice())
             .append(&self.nonce.as_slice())
-            .append(&VERSION)
-            // everything is ignored by handshake beyond this point but we need some addtional data to make message big enough as per EIP-8
-            .append(&PADDING.as_slice());
+            .append(&VERSION);
     }
 }

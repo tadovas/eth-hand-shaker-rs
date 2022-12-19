@@ -1,5 +1,4 @@
 use displaydoc::Display;
-use hex::FromHexError;
 use secp256k1::PublicKey;
 use std::str::FromStr;
 use thiserror::Error;
@@ -14,7 +13,7 @@ pub enum Error {
     /// port missing
     PortMissing,
     /// username as public key: {0}
-    PublicKeyError(#[source] secp256k1::Error),
+    PublicKeyInvalid(#[source] secp256k1::Error),
     /// invalid url: {0}
     InvalidUrl(#[source] url::ParseError),
 }
@@ -38,7 +37,7 @@ impl TryFrom<Url> for Address {
         Ok(Self {
             host: value.host().ok_or(Error::HostMissing)?.to_string(),
             port: value.port().ok_or(Error::PortMissing)?,
-            public_key: PublicKey::from_str(public_key_str).map_err(Error::PublicKeyError)?,
+            public_key: PublicKey::from_str(public_key_str).map_err(Error::PublicKeyInvalid)?,
         })
     }
 }
@@ -57,7 +56,6 @@ impl FromStr for Address {
 mod tests {
     use crate::node::Address;
     use std::str::FromStr;
-    use url::Url;
 
     const NODE_URL: &str = "enode://d860a01f9722d78051619d1e2351aba3f43f943f6f00718d1b9baa4101932a1f5011f16bb2b1bb35db20d6fe28fa0bf09636d26a87d31de9ec6203eeedb1f666@18.138.108.67:30303";
 
