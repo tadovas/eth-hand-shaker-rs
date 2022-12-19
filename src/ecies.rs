@@ -4,7 +4,7 @@ use aes::cipher::KeyIvInit;
 use aes::cipher::StreamCipher;
 use aes::Aes128;
 use anyhow::anyhow;
-use secp256k1::ecdh::SharedSecret;
+use secp256k1::ecdh::{shared_secret_point, SharedSecret};
 use secp256k1::hashes::hex::ToHex;
 use secp256k1::hashes::{sha256, Hash, HashEngine, Hmac, HmacEngine};
 use secp256k1::rand::rngs::OsRng;
@@ -31,7 +31,7 @@ ECIES_AES128_SHA256 = &ECIESParams{
 // hmac signature (32)
 pub const ECIES_OVERHEAD: usize = 65 + 16 + 32;
 
-type Aes128CTR = ctr::Ctr32LE<Aes128>;
+type Aes128CTR = ctr::Ctr128BE<Aes128>;
 
 pub fn encrypt(
     msg: &[u8],
@@ -43,7 +43,7 @@ pub fn encrypt(
     let mut os_rng = OsRng;
     let private_ephemeral = SecretKey::new(&mut os_rng);
 
-    let shared_secret = SharedSecret::new(peer_public_key, &private_ephemeral);
+    let shared_secret = shared_secret(peer_public_key, &private_ephemeral);
 
     let (enc_key, auth_key) = derive_keys(shared_secret.as_ref(), s1)?;
 
@@ -60,7 +60,8 @@ pub fn encrypt(
     let encryption_part = &mut result[(65 + 16)..(65 + 16 + msg.len())];
     cipher.apply_keystream(encryption_part);
 
-    let digest = message_hmac(encryption_part, &auth_key, s2)?;
+    let hashed_part = &result[65..(65 + 16 + msg.len())];
+    let digest = message_hmac(hashed_part, &auth_key, s2)?;
     result.extend_from_slice(&digest[..]);
     Ok(result)
 }
@@ -72,11 +73,11 @@ pub fn decrypt(
     s2: &[u8],
 ) -> anyhow::Result<Vec<u8>> {
     let remote_public_key = PublicKey::from_slice(&msg[..65])?;
-    let shared_secret = SharedSecret::new(&remote_public_key, private_key);
+    let shared_secret = shared_secret(&remote_public_key, private_key);
 
     let (enc_key, auth_key) = derive_keys(shared_secret.as_ref(), s1)?;
 
-    let digest = message_hmac(&msg[(65 + 16)..(msg.len() - 32)], &auth_key, s2)?;
+    let digest = message_hmac(&msg[65..(msg.len() - 32)], &auth_key, s2)?;
     let expected: Hmac<sha256::Hash> = Hmac::from_slice(&msg[msg.len() - 32..])?;
     if expected.ne(&digest) {
         return Err(anyhow!(
@@ -116,10 +117,17 @@ fn message_hmac(msg: &[u8], km: &[u8], shared: &[u8]) -> anyhow::Result<Hmac<sha
     Ok(Hmac::from_engine(mac_engine))
 }
 
+// aligned with ethereum-go behaviour
+fn shared_secret(public_key: &PublicKey, private_key: &SecretKey) -> Vec<u8> {
+    let point = shared_secret_point(public_key, private_key);
+    point[..32].to_vec()
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::ecies::{decrypt, encrypt};
+    use crate::ecies::{decrypt, encrypt, shared_secret};
     use anyhow::anyhow;
+    use secp256k1::ecdh::SharedSecret;
     use secp256k1::rand::rngs::OsRng;
     use secp256k1::{Secp256k1, SecretKey};
     use sha2::Sha256;
@@ -149,5 +157,22 @@ mod tests {
             hex::encode(b"much secret"),
             hex::encode(decrypted)
         ))
+    }
+
+    #[test]
+    fn test_shared_secred_between_keys_works() -> anyhow::Result<()> {
+        let secp = Secp256k1::new();
+        // data taken from ethereum-go ecies tests
+        let key1 = hex::decode("7ebbc6a8358bc76dd73ebc557056702c8cfc34e5cfcd90eb83af0347575fd2ad")?;
+        let key2 = hex::decode("6a3d6396903245bba5837752b9e0348874e72db0c4e11e9c485a81b4ea4353b9")?;
+        let expected =
+            "167ccc13ac5e8a26b131c3446030c60fbfac6aa8e31149d0869f93626a4cdf62".to_string();
+
+        let key1 = SecretKey::from_slice(&key1)?;
+        let key2 = SecretKey::from_slice(&key2)?;
+
+        let derived_secret = shared_secret(&key2.public_key(&secp), &key1);
+
+        Ok(assert_eq!(expected, hex::encode(derived_secret)))
     }
 }
