@@ -14,7 +14,7 @@ hex = "0.4.3"
 thiserror = "1.0.34"
 tokio = { version = "1.23.0" , features = ["full"]}
 url = "2.3.1"
-secp256k1 = { version = "0.25.0" , features = ["bitcoin-hashes-std", "serde", "rand-std"]}
+secp256k1 = { version = "0.25.0" , features = ["bitcoin-hashes-std", "serde", "rand-std", "recovery"]}
 concat-kdf = "0.1.0"
 sha2 = "0.10.6"
 aes = "0.8.2"

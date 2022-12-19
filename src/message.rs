@@ -8,7 +8,8 @@
    trailing RPL which is ignored
 */
 
-use rlp::{Encodable, RlpStream};
+use rlp::{Decodable, DecoderError, Encodable, RlpStream, UntrustedRlp};
+use secp256k1::PublicKey;
 
 const VERSION: u32 = 4;
 
@@ -18,16 +19,6 @@ pub struct AuthMsgV4 {
     pub nonce: [u8; 32],
 }
 
-impl Default for AuthMsgV4 {
-    fn default() -> Self {
-        Self {
-            signature: [4; 65],
-            pub_key: [5; 64],
-            nonce: [6; 32],
-        }
-    }
-}
-
 impl Encodable for AuthMsgV4 {
     fn rlp_append(&self, s: &mut RlpStream) {
         s.begin_list(4)
@@ -35,5 +26,22 @@ impl Encodable for AuthMsgV4 {
             .append(&self.pub_key.as_slice())
             .append(&self.nonce.as_slice())
             .append(&VERSION);
+    }
+}
+
+#[derive(Debug)]
+pub struct AuthRespV4 {
+    pub pub_key: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub version: u32,
+}
+
+impl Decodable for AuthRespV4 {
+    fn decode(rlp: &UntrustedRlp) -> Result<Self, DecoderError> {
+        Ok(AuthRespV4 {
+            pub_key: rlp.val_at(0)?,
+            nonce: rlp.val_at(1)?,
+            version: rlp.val_at(2)?,
+        })
     }
 }
