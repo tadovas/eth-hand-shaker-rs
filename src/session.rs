@@ -3,10 +3,9 @@ use crate::message::AuthRespV4;
 use crate::{ecies, message};
 use rlp::{Decodable, Encodable, UntrustedRlp};
 use secp256k1::ecdh::shared_secret_point;
-use secp256k1::ecdsa::{RecoverableSignature, Signature};
+use secp256k1::ecdsa::RecoverableSignature;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::RngCore;
-use secp256k1::serde::Serialize;
 use secp256k1::{Message, SecretKey};
 use secp256k1::{PublicKey, Secp256k1};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -57,16 +56,19 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
     conn.write_u16(auth_message_size).await?;
     conn.write_all(&auth_encrypted).await?;
     conn.flush().await?;
+
+    // read the response
     let res = conn.read_u16().await?;
-    println!("Got something: {} bytes", res);
     let mut vec = Vec::with_capacity(res as usize);
     conn.read_buf(&mut vec).await?;
 
     let auth_resp_bytes = decrypt(&vec, local_secret_key, &[], &res.to_be_bytes())?;
-    println!("Decrypted: {}", hex::encode(&auth_resp_bytes));
+
     let rlp_stream = UntrustedRlp::new(&auth_resp_bytes);
     let auth_resp = AuthRespV4::decode(&rlp_stream)?;
+
     println!("Auth resp: {:?}", auth_resp);
+    // now to handle all the secrecy and create hmac and encrypter for outgoing data, and hmac and decrypter for incoming data
     Ok(Session {})
 }
 
@@ -84,7 +86,7 @@ fn cut_first_byte_of_pub_key(public_key: &PublicKey) -> [u8; 64] {
     let mut res = [0u8; 64];
     for (dst, val) in res
         .iter_mut()
-        .zip(public_key.serialize_uncompressed()[1..].into_iter())
+        .zip(public_key.serialize_uncompressed()[1..].iter())
     {
         *dst = *val;
     }

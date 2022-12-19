@@ -9,10 +9,10 @@
 */
 
 use rlp::{Decodable, DecoderError, Encodable, RlpStream, UntrustedRlp};
-use secp256k1::PublicKey;
 
 const VERSION: u32 = 4;
 
+#[derive(Debug)]
 pub struct AuthMsgV4 {
     pub signature: [u8; 65],
     pub pub_key: [u8; 64],

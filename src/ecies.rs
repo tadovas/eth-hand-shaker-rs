@@ -4,7 +4,7 @@ use aes::cipher::KeyIvInit;
 use aes::cipher::StreamCipher;
 use aes::Aes128;
 use anyhow::anyhow;
-use secp256k1::ecdh::{shared_secret_point, SharedSecret};
+use secp256k1::ecdh::shared_secret_point;
 use secp256k1::hashes::hex::ToHex;
 use secp256k1::hashes::{sha256, Hash, HashEngine, Hmac, HmacEngine};
 use secp256k1::rand::rngs::OsRng;
