@@ -49,7 +49,6 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let auth_encrypted = ecies::encrypt(
         auth_message_bytes.as_ref(),
         remote_public_key,
-        &[],
         &auth_message_size.to_be_bytes(),
     )?;
 
@@ -62,7 +61,7 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let mut vec = Vec::with_capacity(res as usize);
     conn.read_buf(&mut vec).await?;
 
-    let auth_resp_bytes = decrypt(&vec, local_secret_key, &[], &res.to_be_bytes())?;
+    let auth_resp_bytes = decrypt(&vec, local_secret_key, &res.to_be_bytes())?;
 
     let rlp_stream = UntrustedRlp::new(&auth_resp_bytes);
     let auth_resp = AuthRespV4::decode(&rlp_stream)?;

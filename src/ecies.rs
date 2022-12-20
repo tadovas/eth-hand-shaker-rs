@@ -13,11 +13,12 @@ use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};
 
 /*
+those parameters are taken from eth p2p ecies.go
 ECIES_AES128_SHA256 = &ECIESParams{
         Hash:      sha256.New,
         hashAlgo:  crypto.SHA256,
         Cipher:    aes.NewCipher,
-        BlockSize: aes.BlockSize,
+        BlockSize: aes.BlockSize,   // 16 bytes for AES
         KeyLen:    16,
     }
 
@@ -36,8 +37,7 @@ type Aes128CTR = ctr::Ctr128BE<Aes128>;
 pub fn encrypt(
     msg: &[u8],
     peer_public_key: &PublicKey,
-    s1: &[u8],
-    s2: &[u8],
+    hmac_shared_data: &[u8],
 ) -> anyhow::Result<Vec<u8>> {
     let secp = Secp256k1::new();
     let mut os_rng = OsRng;
@@ -45,7 +45,7 @@ pub fn encrypt(
 
     let shared_secret = shared_secret(peer_public_key, &private_ephemeral);
 
-    let (enc_key, auth_key) = derive_keys(shared_secret.as_ref(), s1)?;
+    let (enc_key, auth_key) = derive_keys(shared_secret.as_ref())?;
 
     let mut iv = [0u8; 16];
     os_rng.fill_bytes(&mut iv);
@@ -60,8 +60,9 @@ pub fn encrypt(
     let encryption_part = &mut result[(65 + 16)..(65 + 16 + msg.len())];
     cipher.apply_keystream(encryption_part);
 
+    // hashing is done on iv + encrypted message
     let hashed_part = &result[65..(65 + 16 + msg.len())];
-    let digest = message_hmac(hashed_part, &auth_key, s2)?;
+    let digest = message_hmac(hashed_part, &auth_key, hmac_shared_data)?;
     result.extend_from_slice(&digest[..]);
     Ok(result)
 }
@@ -69,15 +70,14 @@ pub fn encrypt(
 pub fn decrypt(
     msg: &[u8],
     private_key: &SecretKey,
-    s1: &[u8],
-    s2: &[u8],
+    hmac_shared_input: &[u8],
 ) -> anyhow::Result<Vec<u8>> {
     let remote_public_key = PublicKey::from_slice(&msg[..65])?;
     let shared_secret = shared_secret(&remote_public_key, private_key);
 
-    let (enc_key, auth_key) = derive_keys(shared_secret.as_ref(), s1)?;
+    let (enc_key, auth_key) = derive_keys(shared_secret.as_ref())?;
 
-    let digest = message_hmac(&msg[65..(msg.len() - 32)], &auth_key, s2)?;
+    let digest = message_hmac(&msg[65..(msg.len() - 32)], &auth_key, hmac_shared_input)?;
     let expected: Hmac<sha256::Hash> = Hmac::from_slice(&msg[msg.len() - 32..])?;
     if expected.ne(&digest) {
         return Err(anyhow!(
@@ -95,12 +95,9 @@ pub fn decrypt(
 }
 
 // derive two keys from given secret, one for encryption (size 16) another for hmac (size 32)
-fn derive_keys(
-    secret: &[u8],
-    s1: &[u8],
-) -> anyhow::Result<(GenericArray<u8, U16>, GenericArray<u8, U32>)> {
+fn derive_keys(secret: &[u8]) -> anyhow::Result<(GenericArray<u8, U16>, GenericArray<u8, U32>)> {
     let mut derived_key = [0u8; 16 * 2];
-    concat_kdf::derive_key_into::<Sha256>(secret, s1, &mut derived_key)
+    concat_kdf::derive_key_into::<Sha256>(secret, &[], &mut derived_key)
         .map_err(|err| anyhow!("concat-KDF: {}", err))?;
     let second_part = Sha256::digest(&derived_key[16..]);
 
@@ -127,7 +124,6 @@ fn shared_secret(public_key: &PublicKey, private_key: &SecretKey) -> Vec<u8> {
 mod tests {
     use crate::ecies::{decrypt, encrypt, shared_secret};
     use anyhow::anyhow;
-    use secp256k1::ecdh::SharedSecret;
     use secp256k1::rand::rngs::OsRng;
     use secp256k1::{Secp256k1, SecretKey};
     use sha2::Sha256;
@@ -151,8 +147,8 @@ mod tests {
         let mut rng = OsRng;
         let key = SecretKey::new(&mut rng);
 
-        let encrypted = encrypt(b"much secret", &key.public_key(&secp), &[], b"mac auth key")?;
-        let decrypted = decrypt(&encrypted, &key, &[], b"mac auth key")?;
+        let encrypted = encrypt(b"much secret", &key.public_key(&secp), b"mac auth key")?;
+        let decrypted = decrypt(&encrypted, &key, b"mac auth key")?;
         Ok(assert_eq!(
             hex::encode(b"much secret"),
             hex::encode(decrypted)
@@ -174,5 +170,17 @@ mod tests {
         let derived_secret = shared_secret(&key2.public_key(&secp), &key1);
 
         Ok(assert_eq!(expected, hex::encode(derived_secret)))
+    }
+
+    #[test]
+    fn test_real_node_response_is_decryptable_with_given_key() -> anyhow::Result<()> {
+        let key = hex::decode("d35874e88bdc63636bdfc632070d7923bd7fe7648fe5a0fbaf7c51c876c0565b")?;
+        let key = SecretKey::from_slice(&key)?;
+        // real node response as part of handshake for the given key above
+        let response = hex::decode("0444e4b9a854a6c3f4f9631756c8a00d7f20b0efd1ade30ad8b2731af8a9b33af4d1cfc300dc084bbd0436f4b070f6f6de4cd1e137deb0bbf5096fdad09f844f4132b8df88b19ce55415a6bc2e68dd6a2904d53ed8af1990d4824ab92bfc11d9e3998bec87c3ea0e7fc7e3deec7b143262a4fc855c969c5fa385b9d6ca6b4afbdcd6ab8ef2b720227a4c27b46e221a9b2cb43155be53deadce4500506e4caefd8c21abfa128d1d764e7b6189db0d80c7c2aa40018210acb5854af469dcb6e5c2dd958682d3e74609112092419af69bdbe891bff290aa99f275402c016183bc32c493df532a395010703c88d4b5964395d1f8c84f9da614775ff2e3f4fa8aa0fb8d309aa8724d34b1c2e0901d4cb74ee2751ba4a55cfff052f155c7f9251db8b7e01b8ef16c9c1d0a90a4c71515d86306d7292ab2081f163cc95d1b119bb48c6d9bbadf7000c64d9969309aa79b3d5636e42ff89ba959b277febc02b5879f117cc6eb7c508383bb963ce325937d2e38c9ab8882")?;
+
+        let res = decrypt(&response, &key, &(response.len() as u16).to_be_bytes())?;
+
+        Ok(assert_eq!("f864b840ca2cc2ffe7db0e93b43ba350199c4d5376077b7defda66b97dc2416a24beb7b118e203a53006561e10ad2fba5cb83eeeeff7930777134db6a81c8c77d0c030dba0e1f0d9e92c327205979b76f0b2a295bb61d66ff728004f5d33d305df3fbeebb904000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".to_string(), hex::encode(&res)))
     }
 }
