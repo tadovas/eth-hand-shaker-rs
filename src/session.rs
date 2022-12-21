@@ -1,6 +1,6 @@
 use crate::crypto::{init_keccak256_hasher, keccak256_hash, Aes256CTR, HashMac};
 use crate::ecies::{decrypt, ECIES_OVERHEAD};
-use crate::message::{AuthRespV4, Header};
+use crate::message::{AuthRespV4, Frame, Header};
 use crate::{ecies, message};
 use aes::cipher::consts::U32;
 use aes::cipher::generic_array::GenericArray;
@@ -16,6 +16,7 @@ use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::RngCore;
 use secp256k1::{Message, SecretKey};
 use secp256k1::{PublicKey, Secp256k1};
+use std::fmt::Debug;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub async fn handshake<C: AsyncRead + AsyncWrite + Unpin>(
@@ -153,7 +154,7 @@ pub struct Session<C> {
 }
 
 impl<C: AsyncRead + AsyncWrite + Unpin> Session<C> {
-    pub async fn read_message(&mut self) -> anyhow::Result<()> {
+    pub async fn read_message<T: Decodable + Debug>(&mut self) -> anyhow::Result<Frame<T>> {
         let mut frame_header = [0u8; 32];
         self.conn.read_exact(frame_header.as_mut()).await?;
         // TODO - hmac check first before any interpretations
@@ -176,12 +177,12 @@ impl<C: AsyncRead + AsyncWrite + Unpin> Session<C> {
                 frame_size
             }
         } as usize;
-        let mut frame_data = Vec::with_capacity(padded_size);
-        self.conn.read_exact(&mut frame_data).await?;
-        println!("Frame encrypted data: {}", hex::encode(&frame_data));
-        self.decoder
-            .apply_keystream(&mut frame_data[..(padded_size - 16)]);
-        println!("Frame data: {}", hex::encode(&frame_data));
-        Ok(())
+        let mut frame_data = Vec::with_capacity(padded_size + 16); // additional 16 bytes is frame mac
+        self.conn.read_buf(&mut frame_data).await?;
+        // TODO - skip mac check for now
+        self.decoder.apply_keystream(&mut frame_data[..padded_size]);
+        //println!("data: {}", hex::encode(&frame_data));
+        let rlp_stream = UntrustedRlp::new(&frame_data[..padded_size]);
+        Ok(Frame::<T>::decode(&rlp_stream)?)
     }
 }

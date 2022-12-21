@@ -4,6 +4,7 @@ mod message;
 mod node;
 mod session;
 
+use crate::message::{Frame, Hello};
 use crate::node::Address;
 use clap::Parser;
 use secp256k1::rand::rngs::OsRng;
@@ -31,6 +32,7 @@ async fn main() -> anyhow::Result<()> {
     let conn = TcpStream::connect((node.host, node.port)).await?;
 
     let mut session = session::handshake(conn, &node.public_key, &secret_key).await?;
-    session.read_message().await?;
+    let hello_frame: Frame<Hello> = session.read_message().await?;
+    println!("Hello from peer: {:?}", hello_frame);
     Ok(())
 }
