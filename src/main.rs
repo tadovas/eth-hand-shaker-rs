@@ -1,3 +1,4 @@
+mod crypto;
 mod ecies;
 mod message;
 mod node;
@@ -29,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     let node = args.node;
     let conn = TcpStream::connect((node.host, node.port)).await?;
 
-    let _session = session::handshake(conn, &node.public_key, &secret_key).await?;
-
+    let mut session = session::handshake(conn, &node.public_key, &secret_key).await?;
+    session.read_message().await?;
     Ok(())
 }

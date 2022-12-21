@@ -1,8 +1,8 @@
+use crate::crypto::Aes128CTR;
 use aes::cipher::consts::{U16, U32};
 use aes::cipher::generic_array::GenericArray;
 use aes::cipher::KeyIvInit;
 use aes::cipher::StreamCipher;
-use aes::Aes128;
 use anyhow::anyhow;
 use secp256k1::ecdh::shared_secret_point;
 use secp256k1::hashes::hex::ToHex;
@@ -31,8 +31,6 @@ ECIES_AES128_SHA256 = &ECIESParams{
 // <encrypted message itself>
 // hmac signature (32)
 pub const ECIES_OVERHEAD: usize = 65 + 16 + 32;
-
-type Aes128CTR = ctr::Ctr128BE<Aes128>;
 
 pub fn encrypt(
     msg: &[u8],
@@ -115,7 +113,7 @@ fn message_hmac(msg: &[u8], km: &[u8], shared: &[u8]) -> anyhow::Result<Hmac<sha
 }
 
 // aligned with ethereum-go behaviour
-fn shared_secret(public_key: &PublicKey, private_key: &SecretKey) -> Vec<u8> {
+pub fn shared_secret(public_key: &PublicKey, private_key: &SecretKey) -> Vec<u8> {
     let point = shared_secret_point(public_key, private_key);
     point[..32].to_vec()
 }
