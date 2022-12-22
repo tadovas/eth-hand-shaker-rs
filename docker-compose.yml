@@ -7,3 +7,10 @@ services:
       - "./geth/runtime:/root/.ethereum"
     ports:
       - "30303:30303"
+
+  init:
+    image: ethereum/client-go
+    command: init /genesis.json
+    volumes:
+      - "./geth/runtime:/root/.ethereum"
+      - "./geth/genesis.json:/genesis.json"
