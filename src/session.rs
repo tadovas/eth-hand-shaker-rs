@@ -157,11 +157,17 @@ impl<C: AsyncRead + AsyncWrite + Unpin> Session<C> {
     pub async fn read_message<T: Decodable + Debug>(&mut self) -> anyhow::Result<Frame<T>> {
         let mut frame_header = [0u8; 32];
         self.conn.read_exact(frame_header.as_mut()).await?;
+        let received_mac = &frame_header[16..];
+        let computed_mac = self.ingress_hasher.compute_header_mac(&frame_header[..16])?;
+        if !computed_mac.eq(received_mac) {
+            return Err(anyhow!("Mac mismatch. Expected: {} received: {}", hex::encode(computed_mac) , hex::encode(received_mac)))
+        }
         // TODO - hmac check first before any interpretations
         let payload_to_decrypt = &mut frame_header[..16];
         self.decoder.apply_keystream(payload_to_decrypt);
         // we don't need mutability anymore - reborrow
         let frame_header_data = &frame_header[..16];
+
         println!("Decrypted frame header: {}", hex::encode(frame_header_data));
         let header = Header::decode(&UntrustedRlp::new(&frame_header_data[3..]))?;
         println!("Header: {:?}", header);
