@@ -1,6 +1,6 @@
 use crate::crypto::{init_keccak256_hasher, keccak256_hash, Aes256CTR, HashMac};
 use crate::ecies::{decrypt, ECIES_OVERHEAD};
-use crate::message::{AuthRespV4, Frame, Header};
+use crate::message::{AuthRespV4, Disconnect, Frame, Header};
 use crate::{ecies, message};
 use aes::cipher::consts::U32;
 use aes::cipher::generic_array::GenericArray;
@@ -59,9 +59,11 @@ pub async fn handshake<C: AsyncRead + AsyncWrite + Unpin>(
         remote_public_key,
         &auth_message_size.to_be_bytes(),
     )?;
-
-    conn.write_u16(auth_message_size).await?;
-    conn.write_all(&auth_encrypted).await?;
+    let mut auth_packet = Vec::with_capacity(auth_encrypted.len() + 2);
+    // we need full packet (with two bytes of size to feed into hasher later)
+    auth_packet.put_u16(auth_message_size);
+    auth_packet.extend_from_slice(&auth_encrypted);
+    conn.write_all(&auth_packet).await?;
     conn.flush().await?;
 
     // read the response
@@ -96,7 +98,7 @@ pub async fn handshake<C: AsyncRead + AsyncWrite + Unpin>(
     let aes_secret = keccak256_hash(&shared_static_secret, &shared_secret);
     let mac_secret = keccak256_hash(&shared_static_secret, &aes_secret);
 
-    let egress_hasher = init_keccak256_hasher(&mac_secret, &auth_resp.nonce, &auth_encrypted);
+    let egress_hasher = init_keccak256_hasher(&mac_secret, &auth_resp.nonce, &auth_packet);
     let ingress_hasher = init_keccak256_hasher(&mac_secret, &nonce, &auth_response_encrypted);
 
     // all zeroes IV intentional because according to eth - ephemeral keys are used for AES
@@ -147,6 +149,10 @@ fn to_u24_be(slice: &[u8]) -> anyhow::Result<u32> {
         .fold(0u32, |acc, item| (acc << 8) | *item as u32))
 }
 
+fn from_u24_be(val: u32) -> Vec<u8> {
+    val.to_be_bytes()[1..].to_vec()
+}
+
 pub struct Session<C> {
     conn: C,
     encoder: Aes256CTR,
@@ -156,7 +162,7 @@ pub struct Session<C> {
 }
 
 impl<C: AsyncRead + AsyncWrite + Unpin> Session<C> {
-    pub async fn read_message<T: Decodable + Debug>(&mut self) -> anyhow::Result<Frame<T>> {
+    pub async fn read_frame<T: Decodable + Debug>(&mut self) -> anyhow::Result<Frame<T>> {
         let mut frame_header = [0u8; 32];
         self.conn.read_exact(frame_header.as_mut()).await?;
         let received_mac = &frame_header[16..];
@@ -205,5 +211,68 @@ impl<C: AsyncRead + AsyncWrite + Unpin> Session<C> {
         //println!("data: {}", hex::encode(&frame_data));
         let rlp_stream = UntrustedRlp::new(&frame_data[..padded_size]);
         Ok(Frame::<T>::decode(&rlp_stream)?)
+    }
+
+    pub async fn write_frame<T: Encodable + Debug>(
+        &mut self,
+        frame: &Frame<T>,
+    ) -> anyhow::Result<()> {
+        let mut frame_data = frame.rlp_bytes().to_vec();
+        let frame_data_size = frame_data.len();
+        let padding = frame_data_size % 16;
+        if padding > 0 {
+            frame_data.put_bytes(0, 16 - padding)
+        }
+
+        // data is ready
+        let mut header: Vec<u8> = Vec::with_capacity(16);
+        header.extend_from_slice(&from_u24_be(frame_data_size as u32));
+        header.extend_from_slice(
+            &Header {
+                capability_id: 0,
+                context_id: 0,
+            }
+            .rlp_bytes(),
+        );
+        let padding = 16 - header.len();
+        if padding > 0 {
+            header.put_bytes(0, padding)
+        }
+        self.encoder.apply_keystream(&mut header[..]);
+        self.conn.write_all(&header).await?;
+        self.conn
+            .write_all(&self.egress_hasher.compute_header_mac(&header[..])?)
+            .await?;
+        println!(
+            "Frame data size: {} : padded: {}",
+            frame_data_size,
+            frame_data.len(),
+        );
+        self.encoder.apply_keystream(&mut frame_data[..]);
+        self.conn.write_all(&frame_data).await?;
+        self.conn
+            .write_all(&self.egress_hasher.compute_frame_mac(&frame_data[..])?)
+            .await?;
+        self.conn.flush().await?;
+        Ok(())
+    }
+
+    pub async fn shutdown(mut self) -> anyhow::Result<()> {
+        self.write_frame(&Disconnect { reason: 0x8 }.into()).await?;
+        self.conn.shutdown().await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::session::{from_u24_be, to_u24_be};
+
+    #[test]
+    fn u24_conversion_test() -> anyhow::Result<()> {
+        let val = to_u24_be(&[1u8, 2u8, 3u8])?;
+        assert_eq!(0x010203u32, val);
+        let vec_val = from_u24_be(val);
+        Ok(assert_eq!([1u8, 2u8, 3u8].to_vec(), vec_val))
     }
 }

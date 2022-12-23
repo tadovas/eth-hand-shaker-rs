@@ -62,6 +62,14 @@ impl Decodable for Header {
     }
 }
 
+impl Encodable for Header {
+    fn rlp_append(&self, s: &mut RlpStream) {
+        s.begin_list(2)
+            .append(&self.capability_id)
+            .append(&self.context_id);
+    }
+}
+
 #[derive(Debug)]
 pub struct Capability {
     pub name: String, // max 8 chars according to rplx
@@ -74,6 +82,12 @@ impl Decodable for Capability {
             name: rlp.val_at(0)?,
             version: rlp.val_at(1)?,
         })
+    }
+}
+
+impl Encodable for Capability {
+    fn rlp_append(&self, s: &mut RlpStream) {
+        s.begin_list(2).append(&self.name).append(&self.version);
     }
 }
 
@@ -98,6 +112,37 @@ impl Decodable for Hello {
     }
 }
 
+impl Encodable for Hello {
+    fn rlp_append(&self, s: &mut RlpStream) {
+        s.begin_list(5)
+            .append(&self.proto_version)
+            .append(&self.client_id)
+            .append_list(&self.capabilities)
+            .append(&self.listen_port)
+            .append(&self.node_id);
+    }
+}
+
+#[derive(Debug)]
+pub struct Disconnect {
+    pub reason: u32, // reason is defined in RPLX protocol - 0 means disconnecting
+}
+
+impl Encodable for Disconnect {
+    fn rlp_append(&self, s: &mut RlpStream) {
+        s.begin_list(1).append(&self.reason);
+    }
+}
+
+impl From<Disconnect> for Frame<Disconnect> {
+    fn from(value: Disconnect) -> Self {
+        Self {
+            msg_id: 0x01,
+            message: value,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Frame<T: Debug> {
     pub msg_id: u32,
@@ -113,6 +158,22 @@ impl<T: Decodable + Debug> Decodable for Frame<T> {
             msg_id: message_id,
             message: data_rlp.as_val()?,
         })
+    }
+}
+
+impl<T: Encodable + Debug> Encodable for Frame<T> {
+    fn rlp_append(&self, s: &mut RlpStream) {
+        s.append_internal(&self.msg_id)
+            .append_internal(&self.message);
+    }
+}
+
+impl From<Hello> for Frame<Hello> {
+    fn from(value: Hello) -> Self {
+        Self {
+            msg_id: 1,
+            message: value,
+        }
     }
 }
 
