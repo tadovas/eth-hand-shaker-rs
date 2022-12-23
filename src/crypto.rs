@@ -65,8 +65,15 @@ impl HashMac {
     }
 
     // input is frame data aligned to 16 bytes blocks, result is always 16 bytes mac
-    pub fn compute_frame_mac(&mut self, frame_data: &[u8]) -> Vec<u8> {
-        Vec::new()
+    pub fn compute_frame_mac(&mut self, frame_data: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let seed = {
+            self.hasher.borrow_mut().update(frame_data);
+            let mut mut_output_slice = self.seed_buffer.borrow_mut();
+            let output = Output::<Keccak256>::from_mut_slice(mut_output_slice.as_mut_slice());
+            Digest::finalize_into(self.hasher.borrow().clone(), output);
+            mut_output_slice.to_vec()
+        };
+        self.compute(&seed, &seed[..16])
     }
 
     // does all eth magic, returns lower 16 bytes of hash as mac
@@ -129,8 +136,14 @@ mod tests {
         let mut hash_mac = HashMac::new(cipher, hasher);
         let header = hex::decode("00112233445566778899AABBCCDDEEFF")?;
         let computed = hash_mac.compute_header_mac(&header)?;
-        Ok(assert_eq!(
+        assert_eq!(
             "ec4e4afd93e4069e440dc4ce59e2abed".to_string(),
+            hex::encode(&computed)
+        );
+
+        let computed = hash_mac.compute_frame_mac(b"some random data")?;
+        Ok(assert_eq!(
+            "d39664bc2179525e3158ea8df6f3d969".to_string(),
             hex::encode(&computed)
         ))
     }

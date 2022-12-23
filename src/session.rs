@@ -165,7 +165,7 @@ impl<C: AsyncRead + AsyncWrite + Unpin> Session<C> {
             .compute_header_mac(&frame_header[..16])?;
         if !computed_mac.eq(received_mac) {
             return Err(anyhow!(
-                "Mac mismatch. Expected: {} received: {}",
+                "Header mac mismatch. Expected: {} received: {}",
                 hex::encode(computed_mac),
                 hex::encode(received_mac)
             ));
@@ -175,12 +175,10 @@ impl<C: AsyncRead + AsyncWrite + Unpin> Session<C> {
         // we don't need mutability anymore - reborrow
         let frame_header_data = &frame_header[..16];
 
-        println!("Decrypted frame header: {}", hex::encode(frame_header_data));
-        let header = Header::decode(&UntrustedRlp::new(&frame_header_data[3..]))?;
-        println!("Header: {:?}", header);
+        // try to decode header RLP just for sanity check
+        let _ = Header::decode(&UntrustedRlp::new(&frame_header_data[3..]))?;
 
         let frame_size = to_u24_be(frame_header_data)?;
-        println!("Frame data size: {}", frame_size);
 
         let padded_size: usize = {
             let padding = frame_size % 16;
@@ -192,7 +190,17 @@ impl<C: AsyncRead + AsyncWrite + Unpin> Session<C> {
         } as usize;
         let mut frame_data = Vec::with_capacity(padded_size + 16); // additional 16 bytes is frame mac
         self.conn.read_buf(&mut frame_data).await?;
-        // TODO - skip mac check for now
+        let received = &frame_data[padded_size..];
+        let computed = self
+            .ingress_hasher
+            .compute_frame_mac(&frame_data[..padded_size])?;
+        if !computed.eq(received) {
+            return Err(anyhow!(
+                "Frame mac mismatch. Expected: {} received: {}",
+                hex::encode(computed),
+                hex::encode(received)
+            ));
+        }
         self.decoder.apply_keystream(&mut frame_data[..padded_size]);
         //println!("data: {}", hex::encode(&frame_data));
         let rlp_stream = UntrustedRlp::new(&frame_data[..padded_size]);
