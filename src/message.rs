@@ -171,7 +171,7 @@ impl<T: Encodable + Debug> Encodable for Frame<T> {
 impl From<Hello> for Frame<Hello> {
     fn from(value: Hello) -> Self {
         Self {
-            msg_id: 1,
+            msg_id: 0,
             message: value,
         }
     }
