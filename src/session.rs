@@ -8,6 +8,7 @@ use aes::cipher::KeyInit;
 use aes::cipher::KeyIvInit;
 use aes::Aes256;
 use anyhow::anyhow;
+use bytes::BufMut;
 use ctr::cipher::StreamCipher;
 use rlp::{Decodable, Encodable, UntrustedRlp};
 use secp256k1::ecdh::shared_secret_point;
@@ -65,11 +66,12 @@ pub async fn handshake<C: AsyncRead + AsyncWrite + Unpin>(
 
     // read the response
     let res = conn.read_u16().await?;
-    let mut auth_response_encrypted = Vec::with_capacity(res as usize);
+    let mut auth_response_encrypted = Vec::with_capacity((res + 2) as usize);
+    auth_response_encrypted.put_u16(res);
     conn.read_buf(&mut auth_response_encrypted).await?;
 
     let auth_resp_bytes = decrypt(
-        &auth_response_encrypted,
+        &auth_response_encrypted[2..],
         local_secret_key,
         &res.to_be_bytes(),
     )?;
@@ -158,11 +160,16 @@ impl<C: AsyncRead + AsyncWrite + Unpin> Session<C> {
         let mut frame_header = [0u8; 32];
         self.conn.read_exact(frame_header.as_mut()).await?;
         let received_mac = &frame_header[16..];
-        let computed_mac = self.ingress_hasher.compute_header_mac(&frame_header[..16])?;
+        let computed_mac = self
+            .ingress_hasher
+            .compute_header_mac(&frame_header[..16])?;
         if !computed_mac.eq(received_mac) {
-            return Err(anyhow!("Mac mismatch. Expected: {} received: {}", hex::encode(computed_mac) , hex::encode(received_mac)))
+            return Err(anyhow!(
+                "Mac mismatch. Expected: {} received: {}",
+                hex::encode(computed_mac),
+                hex::encode(received_mac)
+            ));
         }
-        // TODO - hmac check first before any interpretations
         let payload_to_decrypt = &mut frame_header[..16];
         self.decoder.apply_keystream(payload_to_decrypt);
         // we don't need mutability anymore - reborrow

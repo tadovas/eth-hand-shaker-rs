@@ -96,7 +96,7 @@ impl HashMac {
 
 #[cfg(test)]
 mod tests {
-    use crate::crypto::{keccak256_hash, HashMac};
+    use crate::crypto::{init_keccak256_hasher, keccak256_hash, HashMac};
     use aes::Aes256;
     use cipher::generic_array::GenericArray;
     use cipher::KeyInit;
@@ -154,5 +154,16 @@ mod tests {
         let output = hasher.finalize_fixed_reset();
         println!("After reset: {}", hex::encode(output));
         Ok(())
+    }
+
+    #[test]
+    pub fn keccak256_init_test() {
+        // input and output - from eth tests
+        let hasher = init_keccak256_hasher(b"MAC", b"nonce", b"data");
+        let hash = hasher.finalize_fixed();
+        assert_eq!(
+            "9116b0aa66f6d1d0d6aa3da440c9721b45df1e0fa1266024b80e26e54e60dea8".to_string(),
+            hex::encode(hash)
+        )
     }
 }
