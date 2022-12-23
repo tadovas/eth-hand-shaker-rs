@@ -24,7 +24,7 @@ Only direct eth dependency is ethereum RLP crate.
 
 If everything is ok peer node can print something like this:
 ```
-TRACE[12-23|20:42:01.493] Accepted connection                      addr=172.18.0.1:55316
+2022-12-23T20:42:01.493921379Z TRACE[12-23|20:42:01.493] Accepted connection                      addr=172.18.0.1:55316
 2022-12-23T20:42:01.507133169Z DEBUG[12-23|20:42:01.505] Adding p2p peer                          peercount=1 id=b4916e3bb904a657 conn=inbound addr=172.18.0.1:55316 name="p2p handshaker 0.1.0"
 2022-12-23T20:42:01.507864695Z INFO [12-23|20:42:01.507] Looking for peers                        peercount=1 tried=0 static=0
 2022-12-23T20:42:01.508618582Z TRACE[12-23|20:42:01.507] Starting protocol eth/66                 id=b4916e3bb904a657 conn=inbound

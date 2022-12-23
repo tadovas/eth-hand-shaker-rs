@@ -243,11 +243,7 @@ impl<C: AsyncRead + AsyncWrite + Unpin> Session<C> {
         self.conn
             .write_all(&self.egress_hasher.compute_header_mac(&header[..])?)
             .await?;
-        println!(
-            "Frame data size: {} : padded: {}",
-            frame_data_size,
-            frame_data.len(),
-        );
+
         self.encoder.apply_keystream(&mut frame_data[..]);
         self.conn.write_all(&frame_data).await?;
         self.conn
